@@ -271,6 +271,7 @@ textarea { border: 1px solid var(--line); background: var(--surface); border-rad
 .imp-line { color: var(--muted); font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-row.owned { opacity: 0.6; cursor: default; }
 .imp-row.missing .imp-match { color: var(--warn); }
+.note-ok { background: var(--good-soft); color: var(--good); padding: 9px 12px; border-radius: 8px; font-size: 0.93rem; margin-bottom: 10px; }
 .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius); padding: 28px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .empty h3 { font-size: 1.4rem; }
 
@@ -640,9 +641,9 @@ dialog footer .spacer { flex: 1; }
       <button type="button" class="chip" data-action="io-mode" data-v="backup">Säkerhetskopia</button>
     </div>
     <section id="ioImport" class="io-sec">
-      <p class="muted">Klistra in din lista med en parfym per rad, till exempel från Google Keep, eller välj en .txt- eller .csv-fil. Inget sparas förrän du har tittat igenom resultatet.</p>
+      <p class="muted">Klistra in din lista med en parfym per rad, till exempel från Google Keep, eller välj en .txt- eller .csv-fil. En säkerhetskopia (.json) känns igen och läses in som säkerhetskopia. Inget sparas förrän du har tittat igenom resultatet.</p>
       <textarea id="impText" rows="7" aria-label="Lista att importera" placeholder="Lattafa Khamrah&#10;Montblanc Explorer&#10;• Afnan 9 PM Eau de Parfum 100 ml"></textarea>
-      <input type="file" id="impFile" accept=".txt,.csv,text/plain,text/csv" hidden>
+      <input type="file" id="impFile" hidden>
       <div class="actions"><button type="button" class="btn small" data-action="pick-file" data-for="impFile">Välj fil</button><button type="button" class="btn primary small" data-action="imp-read">Läs in listan</button></div>
       <div id="impPreview"></div>
     </section>
@@ -652,7 +653,7 @@ dialog footer .spacer { flex: 1; }
       <p class="small" id="expMsg"></p>
       <textarea id="expFallback" rows="6" readonly hidden aria-label="Säkerhetskopia som text"></textarea>
       <h3 class="io-h">Läs in säkerhetskopia</h3>
-      <input type="file" id="bakFile" accept=".json,application/json" hidden>
+      <input type="file" id="bakFile" hidden>
       <div class="actions"><button type="button" class="btn small" data-action="pick-file" data-for="bakFile">Välj .json-fil</button></div>
       <div id="bakPreview"></div>
     </section>
@@ -2390,18 +2391,35 @@ function openIo(mode) {
   if (ioDlg.showModal) ioDlg.showModal(); else ioDlg.setAttribute("open", "");
 }
 function closeIo() { if (ioDlg.close) ioDlg.close(); else ioDlg.removeAttribute("open"); }
+// A backup pasted or chosen under "Importera lista" is recognised and handled as a backup
+function asBackup(text) {
+  const t = String(text || "").trim();
+  if (!t.startsWith("{")) return null;
+  try { const j = JSON.parse(t); return j && Array.isArray(j.perfumes) ? j : null; } catch { return null; }
+}
+function showBackup(j, note) {
+  S.bak = j; S.imp = null; renderImport();
+  setIoMode("backup"); renderBackup();
+  if (note) $("#bakPreview").insertAdjacentHTML("afterbegin", `<p class="note-ok">${esc(note)}</p>`);
+  $("#bakPreview").scrollIntoView({ block: "nearest" });
+}
+function readImport(txt) {
+  const j = asBackup(txt);
+  if (j) { $("#impText").value = ""; showBackup(j, "Det här är en säkerhetskopia, så den läses in här. Kontrollera och tryck Läs in säkerhetskopian."); return; }
+  S.imp = parseImport(txt); renderImport();
+}
 $("#impFile").addEventListener("change", async e => {
   const f = e.target.files && e.target.files[0]; e.target.value = "";
   if (!f) return;
   const txt = await f.text();
-  $("#impText").value = txt; S.imp = parseImport(txt); renderImport();
+  $("#impText").value = txt; readImport(txt);
 });
 $("#bakFile").addEventListener("change", async e => {
   const f = e.target.files && e.target.files[0]; e.target.value = "";
   if (!f) return;
-  try { const j = JSON.parse(await f.text()); if (!j || !Array.isArray(j.perfumes)) throw new Error("format"); S.bak = j; }
-  catch { S.bak = { error: true }; }
+  S.bak = asBackup(await f.text()) || { error: true };
   renderBackup();
+  $("#bakPreview").scrollIntoView({ block: "nearest" });
 });
 document.addEventListener("change", ev => {
   const t = ev.target;
@@ -2494,7 +2512,7 @@ document.addEventListener("click", ev => {
     case "close-io": closeIo(); break;
     case "io-mode": setIoMode(v); break;
     case "pick-file": { const inp = $("#" + a.dataset.for); if (inp) inp.click(); break; }
-    case "imp-read": S.imp = parseImport($("#impText").value); renderImport(); break;
+    case "imp-read": readImport($("#impText").value); break;
     case "imp-add": importAdd(); break;
     case "exp-json": saveFile(`parfymer-pa-hyllan-${todayStr()}.json`, JSON.stringify({ app: "parfymer-pa-hyllan", version: 1, exportedAt: new Date().toISOString(), perfumes: S.perfumes, wishlist: S.wish }, null, 2)); break;
     case "exp-csv": saveFile(`parfymer-pa-hyllan-${todayStr()}.csv`, shelfCsv()); break;
